@@ -17,7 +17,7 @@ dist/
 *.log
 
 # Lock JSON files
-*-lock.json
+# *-lock.json
 
 # Yarn lock file
 yarn.lock
