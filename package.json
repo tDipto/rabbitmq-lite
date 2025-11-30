@@ -1,0 +1,26 @@
+{
+  "name": "rabbitmq-lite",
+  "version": "0.0.1",
+  "description": "A lightweight RabbitMQ helper for Node.js",
+  "main": "dist/lib/index.js",
+  "types": "dist/lib/index.d.ts",
+  "author": "Tanzim",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tDipto/rabbitmq-lite"
+  },
+  "scripts": {
+    "build": "rimraf ./dist && tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^20.6.0"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.3",
+    "nodemon": "^2.0.22",
+    "rimraf": "^5.0.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
+}
