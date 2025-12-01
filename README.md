@@ -1,204 +1,368 @@
-# RoBenDevs RabbitMQ
+# rabbitmq-lite
 
-## RabbitMQ Initialization
+A lightweight RabbitMQ helper library for Node.js with TypeScript support. Simplifies message publishing and consuming with built-in retry logic, error handling, and automatic reconnection.
 
-To initialize RabbitMQ, register all consumers and create a single shared connection.
+## Features
+
+- 🚀 **Simple API** - Easy-to-use abstract classes for consumers and publishers
+- 🔄 **Automatic Retry** - Built-in retry mechanism with configurable retry count and delay
+- 🛡️ **Error Handling** - Automatic error queue management for failed messages
+- 🔌 **Auto-Reconnection** - Automatic reconnection on connection loss
+- 📦 **TypeScript** - Full TypeScript support with type definitions
+- 🔗 **Shared Connection** - Single shared connection for all consumers and publishers
+
+## Installation
+
+```bash
+npm install rabbitmq-lite
+```
+
+## Quick Start
+
+### 1. Initialize RabbitMQ Connection
+
+First, establish a connection to your RabbitMQ server:
 
 ```typescript
-const initRabbitMQ = async () => {
-  RabbitMQConnection.registerConsumers(consumerRegister);
+import { RabbitMQConnection } from "rabbitmq-lite";
 
-  await RabbitMQConnection.connect(config.rabbitMqConnectionUrl);
+// Initialize connection
+await RabbitMQConnection.connect("amqp://localhost");
 
-  writeLogInfo({
-    action: "RabbitMQ.Initialized",
+// Or with retry on failure (default: true)
+await RabbitMQConnection.connect("amqp://localhost", true);
+```
+
+### 2. Create a Consumer
+
+Extend the `Consumer` class to create your message consumer:
+
+```typescript
+import { Consumer } from "rabbitmq-lite";
+
+class OrderProcessor extends Consumer {
+  constructor() {
+    super("order_queue", {
+      retry: true, // Enable retry on error
+      retry_count: 3, // Maximum retry attempts
+      retry_delay: 1000, // Delay between retries (ms)
+    });
+  }
+
+  async execute<OrderMessage>(message: OrderMessage): Promise<void> {
+    // Process your message here
+    console.log("Processing order:", message);
+
+    // Your business logic
+    // If an error is thrown, the retry mechanism will handle it
+  }
+}
+```
+
+### 3. Create a Publisher
+
+Extend the `Publisher` class to create your message publisher:
+
+```typescript
+import { Publisher } from "rabbitmq-lite";
+
+class OrderPublisher extends Publisher {
+  constructor() {
+    super("order_queue", {
+      persistent: true, // Make messages persistent
+    });
+  }
+
+  async publish<OrderMessage>(message: OrderMessage): Promise<void> {
+    // Publish message to the queue
+    await this.rabbitMQClient.sendToQueue(
+      this.queueName,
+      message,
+      this.options
+    );
+  }
+}
+```
+
+### 4. Register and Start Consumers
+
+Register your consumers and start consuming:
+
+```typescript
+import { RabbitMQConnection } from "rabbitmq-lite";
+
+// Register consumers
+RabbitMQConnection.registerConsumers([
+  new OrderProcessor(),
+  // Add more consumers here
+]);
+
+// Connect and start consuming
+await RabbitMQConnection.connect("amqp://localhost");
+```
+
+### 5. Publish Messages
+
+Use your publisher to send messages:
+
+```typescript
+const publisher = new OrderPublisher();
+
+await publisher.publish({
+  orderId: "12345",
+  customerId: "67890",
+  items: ["item1", "item2"],
+});
+```
+
+## API Reference
+
+### RabbitMQConnection
+
+Static class for managing RabbitMQ connections.
+
+#### Methods
+
+##### `connect(rabbitMQUrl: string, retryOnFail?: boolean): Promise<void>`
+
+Establishes a connection to RabbitMQ server.
+
+- `rabbitMQUrl`: Connection URL (e.g., `'amqp://localhost'`)
+- `retryOnFail`: Whether to retry connection on failure (default: `true`)
+
+##### `registerConsumers(consumers: Array<Consumer>): void`
+
+Registers consumers to be started when connection is established.
+
+- `consumers`: Array of consumer instances
+
+##### `getClient(): RabbitMQClient`
+
+Returns the shared RabbitMQ client instance.
+
+##### `isConnected(): boolean`
+
+Checks if the connection is active.
+
+##### `close(): Promise<void>`
+
+Closes the RabbitMQ connection.
+
+##### `reset(): void`
+
+Resets the connection state (useful for testing).
+
+### Consumer
+
+Abstract class for consuming messages from RabbitMQ queues.
+
+#### Constructor
+
+```typescript
+constructor(
+  queueName: string,
+  options?: ConsumerOptions
+)
+```
+
+**Parameters:**
+
+- `queueName`: Name of the queue to consume from
+- `options`: Consumer configuration options
+  - `retry` (boolean): Enable retry on error (default: `true`)
+  - `retry_count` (number): Maximum retry attempts (default: `3`)
+  - `retry_delay` (number): Delay between retries in milliseconds (default: `0`)
+
+#### Methods
+
+##### `execute<MessageType>(message: MessageType): Promise<void>`
+
+Abstract method that must be implemented to process messages.
+
+- `message`: The consumed message
+
+##### `consume(): Promise<void>`
+
+Starts consuming messages from the queue. Automatically handles:
+
+- Message parsing (JSON)
+- Error handling and retry logic
+- Error queue management
+- Message acknowledgment
+
+### Publisher
+
+Abstract class for publishing messages to RabbitMQ queues.
+
+#### Constructor
+
+```typescript
+constructor(
+  queueName: string,
+  options?: object
+)
+```
+
+**Parameters:**
+
+- `queueName`: Name of the queue to publish to
+- `options`: Publishing options (see RabbitMQClient options)
+
+#### Methods
+
+##### `publish<MessageType>(message: MessageType): Promise<void>`
+
+Abstract method that must be implemented to publish messages.
+
+- `message`: The message to publish
+
+#### Protected Properties
+
+- `rabbitMQClient`: Access to the shared RabbitMQ client
+- `queueName`: The queue name
+- `options`: Publishing options
+
+## Publishing Options
+
+When publishing messages, you can use the following options:
+
+```typescript
+{
+  exchange?: string;           // Exchange name
+  routingKey?: string;         // Routing key
+  persistent?: boolean;        // Make message persistent
+  delay?: number;              // Delay in milliseconds
+  exchangeType?: 'direct' | 'fanout' | 'topic';  // Exchange type
+  headers?: object;            // Custom headers
+}
+```
+
+## Error Handling
+
+### Retry Mechanism
+
+When a consumer's `execute` method throws an error:
+
+1. If `retry` is `false`, the message is acknowledged and discarded
+2. If `retry` is `true`:
+   - The message is retried up to `retry_count` times
+   - Each retry includes a `delay` (if specified)
+   - Error count and last exception are stored in message headers
+   - After max retries, the message is sent to `{queueName}_error` queue
+
+### Error Queue
+
+Failed messages (after max retries) are automatically sent to an error queue named `{queueName}_error`. You can create a consumer for this queue to handle failed messages:
+
+```typescript
+class ErrorHandler extends Consumer {
+  constructor() {
+    super("order_queue_error", {
+      retry: false, // Don't retry error messages
+    });
+  }
+
+  async execute<OrderMessage>(message: OrderMessage): Promise<void> {
+    // Handle failed messages
+    console.error("Failed message:", message);
+    // Log, notify, or store for manual review
+  }
+}
+```
+
+## Connection Management
+
+### Auto-Reconnection
+
+The library automatically handles connection loss:
+
+- Detects when the connection is lost
+- Automatically attempts to reconnect
+- Restarts all registered consumers after reconnection
+
+### Manual Connection Management
+
+```typescript
+// Check connection status
+if (RabbitMQConnection.isConnected()) {
+  console.log("Connected!");
+}
+
+// Close connection
+await RabbitMQConnection.close();
+```
+
+## Complete Example
+
+```typescript
+import { RabbitMQConnection, Consumer, Publisher } from "rabbitmq-lite";
+
+// Define message types
+interface OrderMessage {
+  orderId: string;
+  customerId: string;
+  items: string[];
+}
+
+// Create consumer
+class OrderConsumer extends Consumer {
+  constructor() {
+    super("orders", {
+      retry: true,
+      retry_count: 3,
+      retry_delay: 1000,
+    });
+  }
+
+  async execute(message: OrderMessage): Promise<void> {
+    console.log("Processing order:", message.orderId);
+    // Your processing logic here
+  }
+}
+
+// Create publisher
+class OrderPublisher extends Publisher {
+  constructor() {
+    super("orders", { persistent: true });
+  }
+
+  async publish(message: OrderMessage): Promise<void> {
+    await this.rabbitMQClient.sendToQueue(
+      this.queueName,
+      message,
+      this.options
+    );
+  }
+}
+
+// Initialize
+async function init() {
+  // Register consumers
+  RabbitMQConnection.registerConsumers([new OrderConsumer()]);
+
+  // Connect
+  await RabbitMQConnection.connect("amqp://localhost");
+
+  // Publish a message
+  const publisher = new OrderPublisher();
+  await publisher.publish({
+    orderId: "12345",
+    customerId: "67890",
+    items: ["item1", "item2"],
   });
-};
-```
-
-## RabbitMQ Consumer Class
-
-The `Consumer` class is an abstract class that provides a foundation for implementing RabbitMQ consumers in TypeScript. It handles the process of connecting to a RabbitMQ server, consuming messages from a specified queue, and executing a callback function to process the received messages.
-
-## Class Overview
-
-The `Consumer` class has the following properties:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to consume messages from.
-- `options.retry` (boolean): Specifies whether to retry processing a message in case of an error. Defaults to `true`.
-- `options.retry_count` (number): The maximum number of retries before pushing a message to the error queue. Defaults to `3`.
-- `options.retry_delay` (number): The delay in milliseconds between retries. Defaults to `0`.
-- `rabbitMQClient` (RabbitMQClient): An instance of the `RabbitMQClient` class for interacting with RabbitMQ.
-
-## Class Methods
-
-### Constructor
-
-The `Consumer` class constructor takes the following parameters:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to consume messages from.
-- `options.retry` (boolean, optional): Specifies whether to retry processing a message in case of an error. Defaults to `true`.
-- `options.retry_count` (number, optional): The maximum number of retries before pushing a message to the error queue. Defaults to `3`.
-- `options.retry_delay` (number, optional): The delay in milliseconds between retries. Defaults to `0`.
-
-### execute<MessageType>(message: MessageType): void
-
-An abstract method that needs to be implemented by the subclass. It defines the logic to be executed for each consumed message.
-
-- `message` (MessageType): The consumed message to be processed.
-
-### consume(): Promise<void>
-
-Starts consuming messages from the specified queue. This method connects to the RabbitMQ server, sets up the message consuming process, and executes the `execute` method for each consumed message.
-
-## Usage
-
-To use the `Consumer` class, follow these steps:
-
-1. Import the `RabbitMQClient` and `Consumer` classes:
-
-```typescript
-import { RabbitMQClient } from "./RabbitMQClient";
-import { Consumer } from "./Consumer";
-```
-
-2. Create a subclass that extends the `Consumer` class and implement the `execute` method. For example:
-
-```typescript
-class MyConsumer extends Consumer {
-  execute<MessageType>(message: MessageType): void {
-    // Process the consumed message
-    console.log("Received message:", message);
-  }
 }
+
+init().catch(console.error);
 ```
 
-3. Instantiate the `MyConsumer` class with the required parameters:
+## License
 
-```typescript
-const url = "amqp://localhost";
-const queueName = "my_queue";
-const options = {
-  retry: true,
-  retry_count: 3,
-  retry_delay: 1000, //1 Second
-};
+MIT
 
-const consumer = new MyConsumer(url, queueName, options);
-```
+## Author
 
-4. Call the `consume` method to start consuming messages:
+Tanzim
 
-```typescript
-consumer
-  .consume()
-  .then(() => {
-    console.log("Consuming messages...");
-  })
-  .catch((error) => {
-    console.error("Error consuming messages:", error);
-  });
-```
+## Repository
 
-5. When a message is received, the `execute` method of your subclass will be called. Implement the desired logic inside the `execute` method to process the message.
-
-```typescript
-class MyConsumer extends Consumer {
-  execute<MessageType>(message: MessageType): void {
-    // Process the consumed message
-    console.log("Received message:", message);
-
-    // Implement your logic here
-  }
-}
-```
-
-That's it! You have now set up a RabbitMQ consumer using the `Consumer` class. The subclass can be customized to handle specific message processing logic for your application.
-
-# RabbitMQ Publisher Class
-
-The `Publisher` class is an abstract class that provides a foundation for implementing RabbitMQ publishers in TypeScript. It handles the process of connecting to a RabbitMQ server and publishing messages to a specified queue.
-
-## Class Overview
-
-The `Publisher` class has the following properties:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to publish messages to.
-- `options` (object): Additional options for publishing messages.
-- `rabbitMQClient` (RabbitMQClient): An instance of the `RabbitMQClient` class for interacting with RabbitMQ.
-
-## Class Methods
-
-### Constructor
-
-The `Publisher` class constructor takes the following parameters:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to publish messages to.
-- `options` (object, optional): Additional options for publishing messages.
-
-### publish<MessageType>(message: MessageType): void
-
-An abstract method that needs to be implemented by the subclass. It defines the logic to publish a message to the specified queue.
-
-- `message` (MessageType): The message to be published.
-
-## Usage
-
-To use the `Publisher` class, follow these steps:
-
-1. Import the `RabbitMQClient` and `Publisher` classes:
-
-```typescript
-import { RabbitMQClient } from "./RabbitMQClient";
-import { Publisher } from "./Publisher";
-```
-
-2. Create a subclass that extends the `Publisher` class and implement the `publish` method. For example:
-
-```typescript
-class MyPublisher extends Publisher {
-  publish<MessageType>(message: MessageType): void {
-    // Publish the message to the queue
-    console.log("Publishing message:", message);
-    this.rabbitMQClient.sendToQueue(this.queueName, message, this.options);
-  }
-}
-```
-
-3. Instantiate the `MyPublisher` class with the required parameters:
-
-```typescript
-const url = "amqp://localhost";
-const queueName = "my_queue";
-const options = {};
-
-const publisher = new MyPublisher(url, queueName, options);
-```
-
-4. Call the `publish` method to publish a message:
-
-```typescript
-const message = { data: "Hello, RabbitMQ!" };
-
-publisher.publish(message);
-```
-
-5. The `publish` method of your subclass will be called, and the message will be published to the specified queue.
-
-```typescript
-class MyPublisher extends Publisher {
-  publish<MessageType>(message: MessageType): void {
-    // Publish the message to the queue
-    console.log("Publishing message:", message);
-    this.rabbitMQClient.sendToQueue(this.queueName, message, this.options);
-
-    // Implement your logic here
-  }
-}
-```
-
-That's it! You have now set up a RabbitMQ publisher using the `Publisher` class. The subclass can be customized to handle specific message publishing logic for your application.
+[GitHub](https://github.com/tDipto/rabbitmq-lite)

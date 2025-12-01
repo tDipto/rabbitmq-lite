@@ -20,7 +20,7 @@ dist/
 # *-lock.json
 
 # Yarn lock file
-yarn.lock
+# yarn.lock
 
 
 # Package files

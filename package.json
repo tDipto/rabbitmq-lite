@@ -1,6 +1,6 @@
 {
   "name": "rabbitmq-lite",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A lightweight RabbitMQ helper for Node.js",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
